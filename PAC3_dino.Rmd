@@ -1,0 +1,345 @@
+---
+title: 'DINO - Visualització Dades PAC3'
+author: "Autor: MARB"
+date: "Maig 2024"
+output:
+  html_document:
+    highlight: default
+    number_sections: yes
+    theme: cosmo
+    toc: yes
+    toc_depth: 2
+    includes:
+  word_document: default
+  pdf_document:
+    highlight: zenburn
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 1 Contacte inicial
+
+## 1.1 Lectura fitxer
+
+Llegeixo el fitxer CSV. Comprovo registres i atributs.
+
+```{r}
+FILE_NAME = 'dino.csv'
+dd<-read.csv(FILE_NAME)
+dim(dd)
+str(dd)
+```
+
+## 1.2 Valors missing
+
+```{r}
+# NA en cada variable
+library(stringr)
+
+dd[dd == ""] <- NA
+na_percentage <- colMeans(is.na(dd)) * 100
+print(na_percentage)
+
+```
+
+# 2 Preparació i neteja de dades
+
+## 2.1 Preprocessament de la llargada
+
+```{r}
+# Llargada a num
+dd$length_clean <- as.numeric(gsub("m", "", dd$length))
+
+# Registres vàlids
+length(dd$length_clean)
+length(na.omit(dd$length_clean))
+
+# Estadístiques bàsiques
+summary(na.omit(dd$length_clean))
+
+```
+
+```{r}
+# Histograma
+hist(na.omit(dd$length_clean),
+     main = "Histograma de llargada",
+     xlab = "Llargada del dinosaure",
+     ylab = "Frequència",
+     col = "lightblue")
+
+# Densitat
+dens <- density(na.omit(dd$length_clean))
+plot(dens, main = "", xlab = "Llargada del dinosaure", ylab = "Densitat", type = "l", col = "red")
+
+```
+
+**Comentari**: la majoria de dinosaures fa menys de 10m de llarg.
+
+[**Outliers en la llargada**]{.underline}
+
+```{r}
+
+# Boxplot llargada
+boxplot(na.omit(dd$length_clean), 
+        main = "Boxplot de la llargada",
+        ylab = "Llargada",
+        col = "skyblue",
+        border = "black")
+
+```
+
+**Comentari**: Boxplot centrat en una mediana de 6m. Presència de valors atípics en la part superior del gràfic. Són valors infreqüents però correctes corresponents a grans dinosaures.
+
+## 2.2 Preprocessament de la dieta
+
+Neteja de la dieta:
+
+```{r}
+
+library(dplyr)
+
+dd <- dd %>% 
+  mutate(diet_clean = case_when(
+    diet == "herbivorous or omnivorous" ~ "herbivorous",
+    diet == "unknown" ~ NA_character_,
+    TRUE ~ diet
+  ))
+
+head(dd)
+
+```
+
+Distribució de la dieta:
+
+```{r}
+# Instala ggplot2 si aún no lo has hecho
+# install.packages("ggplot2")
+
+# Carga la biblioteca ggplot2
+library(ggplot2)
+
+
+# Compto
+diet_counts <- table(dd$diet_clean)
+data <- data.frame(diet = names(diet_counts), count = as.numeric(diet_counts))
+
+# Percentatges
+data$percentage <- data$count / sum(data$count) * 100
+
+# Gràfic
+pie <- ggplot(data, aes(x = "", y = count, fill = diet)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  theme_void() +
+  theme(legend.position = "bottom") +
+  geom_text(aes(label = paste0(round(percentage), "%")), position = position_stack(vjust = 0.5)) +
+  labs(title = "Dinosaures segons alimentació")
+
+# Cercle del  donut
+donut <- pie + 
+  geom_point(aes(x = 0, y = 0), color = "white", size = 6)  
+
+print(donut)
+
+
+
+```
+
+```{r}
+
+library(ggplot2)
+
+# Eliminar NA
+filtered_data <- subset(dd, !is.na(diet_clean))
+print(head(filtered_data))
+
+# Gràfic
+ggplot(filtered_data, aes(x = length_clean, fill = diet_clean)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~diet_clean, ncol = 1) +
+  labs(title = "Distribució de la llargada per dieta",
+       x = "Llargada",
+       y = "Distribució") +
+  theme_minimal()
+
+
+```
+
+## 2.3 Preprocessament de la taxonomia
+
+```{r}
+
+# Compto paraules en taxonomia
+words_taxonomy <- strsplit(dd$taxonomy, ", ")
+num_taxonomy <- sapply(words_taxonomy, function(x) length(unique(x)))
+dd$taxonomy_depth <- num_taxonomy
+
+print(dd$taxonomy_depth)
+
+```
+
+```{r}
+
+library(ggplot2)
+
+# Crear el dataframe con los datos limpios
+data <- data.frame(length = dd$length_clean, taxonomy_depth = dd$taxonomy_depth)
+
+# Crear el gráfico de dispersión
+ggplot(data, aes(x = length, y = taxonomy_depth)) +
+  geom_point() +
+  labs(title = "Relació entre llargada i profunditat taxonòmica",
+       x = "Llargada de l'animal",
+       y = "Profunditat de la Taxonomia")
+
+
+```
+
+```{r}
+
+# Hexagonal binning
+ggplot(data, aes(x = length, y = taxonomy_depth)) +
+  geom_hex() +
+  labs(title = "Relació entre llargada i profunditat taxonòmica",
+       x = "Llargada de l'animal",
+       y = "Profunditat de la Taxonomia")
+
+```
+
+## 2.4 Preprocessament del lloc de trobada
+
+```{r}
+
+# Dividir cadena i extreure 4 països
+split_and_extract <- function(string) {
+  countries <- strsplit(gsub("[[:space:]]+", "", string, perl = TRUE), ",")[[1]]
+  sites <- rep(NA, 4)
+  for (i in 1:min(4, length(countries))) {
+    sites[i] <- countries[i]
+  }
+  return(sites)
+}
+
+split_sites <- t(sapply(dd$found_it, split_and_extract))
+
+# Creo camps site1, site2, site3 i site4 
+dd$site1 <- split_sites[, 1]
+dd$site2 <- split_sites[, 2]
+dd$site3 <- split_sites[, 3]
+dd$site4 <- split_sites[, 4]
+
+# Elimino camp found_it
+#dd$found_it <- NULL
+
+
+#print(dd)
+
+```
+
+```{r}
+options(repos = c(CRAN = "https://cran.r-project.org"))
+
+
+install.packages("rnaturalearth")
+install.packages("ggplot2")
+install.packages("ggthemes")
+install.packages("ggmap")
+install.packages("maps")
+
+library(rnaturalearth)
+library(ggplot2)
+library(ggthemes)
+library(ggmap)
+library(maps)
+
+
+#install.packages("maps")
+#library(maps)
+
+
+# Cartografia
+world_map <- map_data("world")
+
+# Sense NA
+site1_countries <- unique(na.omit(dd$site1))
+site1_map <- subset(world_map, region %in% site1_countries)
+
+# Mapa
+ggplot() +
+  geom_polygon(data = site1_map, aes(x = long, y = lat, group = group), fill = "lightblue", color = "black") +
+  theme_map() +
+  labs(title = "Países mencionados en site1")
+
+```
+
+Nube de palabras:
+
+```{r}
+
+install.packages("tm")
+library(tm)
+
+
+# Instalar y cargar el paquete wordcloud si aún no está instalado
+install.packages("wordcloud")
+library(wordcloud)
+
+# Limpiar el texto
+corpus <- Corpus(VectorSource(dd$taxonomy))
+corpus <- tm_map(corpus, content_transformer(tolower))
+corpus <- tm_map(corpus, removePunctuation)
+corpus <- tm_map(corpus, removeNumbers)
+corpus <- tm_map(corpus, removeWords, stopwords("english"))
+
+# Crear la nube de palabras con más variedad
+wordcloud(words = corpus, min.freq = 1, random.order = TRUE, 
+          colors = brewer.pal(8, "Dark2"), scale = c(2, 0.5),
+          max.words = 50, random.color = TRUE)
+
+
+
+
+```
+
+```{r}
+
+# Dividir 'when_it_lived' en : 'era', 'start' i 'end'
+split_data <- strsplit(dd$when_it_lived, ", ")
+split_data <- lapply(split_data, function(x) c(unlist(strsplit(x[1], ", ")), x[2]))
+
+# A dataframe
+split_data <- do.call(rbind, split_data)
+split_data <- as.data.frame(split_data, stringsAsFactors = FALSE)
+colnames(split_data) <- c("era", "time_range")
+
+# Dividir 'time_range' en 'start' i 'end'
+split_time_range <- strsplit(split_data$time_range, "-")
+split_time_range <- do.call(rbind, split_time_range)
+split_data$start <- as.numeric(gsub(" million years ago", "", split_time_range[, 1]))
+split_data$end <- as.numeric(gsub(" million years ago", "", split_time_range[, 2]))
+
+# Eliminar
+#split_data$time_range <- NULL
+
+# Combinar
+dd <- cbind(dd, split_data)
+#print(dd)
+
+
+
+```
+
+```{r}
+
+
+# Guardar el dataframe dd en un archivo CSV
+write.csv(dd, file = "dino_clean.csv", row.names = FALSE)
+
+# Confirmar que se ha guardado correctamente
+cat("dino_clean.csv OK.\n")
+
+
+```
